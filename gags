@@ -1,0 +1,176 @@
+-- ✅ Auto-Farm + GUI Stats + Random Delay + Runtime Panel
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UIS = game:GetService("UserInputService")
+
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+local leaderstats = player:WaitForChild("leaderstats")
+local coins = leaderstats:WaitForChild("Sheckles")
+
+local collectedCount = 0
+local currentlySelling = false
+local collecting = false
+local totalSpent = 0
+local fruitCollected = 0
+local sessionStart = tick()
+local eggStats = {["Legendary Egg"] = 0, ["Mythical Egg"] = 0, ["Bug Egg"] = 0}
+
+local sellThreshold = 40
+local sellPosition = Vector3.new(62, 3, 0)
+local resumePosition = Vector3.new(8, 10, -65)
+local seedShopPosition = Vector3.new(64, 3, -26)
+
+local petEggData = {
+    ["Legendary Egg"] = { index = 4, price = 3000000 },
+    ["Mythical Egg"]  = { index = 5, price = 8000000 },
+    ["Bug Egg"]       = { index = 6, price = 50000000 },
+}
+
+local blockedPlants = { Mushroom = true, Bamboo = true }
+local seedBlacklist = {
+    ["Carrot"] = true, ["Strawberry"] = true, ["Blueberry"] = true,
+    ["Orange Tulip"] = true, ["Tomato"] = true, ["Corn"] = true,
+    ["Daffodil"] = true, ["Watermelon"] = true, ["Pumpkin"] = true,
+    ["Apple"] = true, ["Raspberry"] = true,
+}
+
+-- GUI Setup
+local gui = Instance.new("ScreenGui", player.PlayerGui)
+gui.Name = "StatsPanel"
+gui.ResetOnSpawn = false
+
+local panel = Instance.new("TextLabel", gui)
+panel.Position = UDim2.new(0.5, -150, 0, 10)
+panel.Size = UDim2.new(0, 300, 0, 100)
+panel.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+panel.TextColor3 = Color3.fromRGB(255, 255, 255)
+panel.TextScaled = true
+panel.Font = Enum.Font.SourceSansBold
+panel.Text = ""
+
+-- Update panel text
+local function updatePanel()
+    local runtime = tick() - sessionStart
+    local hrs = math.floor(runtime / 3600)
+    local mins = math.floor(runtime % 3600 / 60)
+    local secs = math.floor(runtime % 60)
+
+    panel.Text = string.format("🍎 Fruits: %d
+🥚 Eggs - L: %d  M: %d  B: %d
+💸 Spent: %s
+⏱️ Time: %02d:%02d:%02d",
+        fruitCollected,
+        eggStats["Legendary Egg"],
+        eggStats["Mythical Egg"],
+        eggStats["Bug Egg"],
+        tostring(totalSpent),
+        hrs, mins, secs
+    )
+end
+
+-- Sell function
+local function sellInventory()
+    currentlySelling = true
+    humanoidRootPart.CFrame = CFrame.new(sellPosition)
+    task.wait(0.5 + math.random())
+    ReplicatedStorage.GameEvents.Sell_Inventory:FireServer()
+    collectedCount = 0
+    task.wait(0.5 + math.random())
+    humanoidRootPart.CFrame = CFrame.new(resumePosition)
+    currentlySelling = false
+end
+
+-- Fruit Collector
+local function collectFruits()
+    if currentlySelling or collecting then return end
+    collecting = true
+
+    local plants = workspace:FindFirstChild("Farm") and workspace.Farm.Farm.Important:FindFirstChild("Plants_Physical")
+    if not plants then collecting = false return end
+
+    for _, plant in ipairs(plants:GetChildren()) do
+        if blockedPlants[plant.Name] then continue end
+        local fruits = plant:FindFirstChild("Fruits")
+        if not fruits then continue end
+
+        for _, fruit in ipairs(fruits:GetChildren()) do
+            if currentlySelling then collecting = false return end
+            local variant = fruit:FindFirstChild("Variant")
+            if not variant or variant.Value ~= "Normal" then continue end
+            local part = fruit:FindFirstChildWhichIsA("BasePart", true)
+            local prompt = fruit:FindFirstChildWhichIsA("ProximityPrompt", true)
+            if part and prompt and prompt.Enabled then
+                humanoidRootPart.CFrame = part.CFrame + Vector3.new(0, 2, 0)
+                task.wait(0.1 + math.random() * 0.2)
+                fireproximityprompt(prompt)
+                task.wait(0.3 + math.random() * 0.3)
+                collectedCount += 1
+                fruitCollected += 1
+                updatePanel()
+                if collectedCount >= sellThreshold then
+                    sellInventory()
+                    collecting = false
+                    return
+                end
+                humanoidRootPart.CFrame = CFrame.new(resumePosition)
+            end
+        end
+    end
+    collecting = false
+end
+
+RunService.Heartbeat:Connect(function()
+    if not collecting and not currentlySelling then
+        collectFruits()
+    end
+end)
+
+-- Seed Buyer
+task.spawn(function()
+    while true do
+        humanoidRootPart.CFrame = CFrame.new(seedShopPosition)
+        task.wait(1.5)
+        for _, label in ipairs(player.PlayerGui:GetDescendants()) do
+            if label:IsA("TextLabel") and label.Text:match("^X%d+ Stock$") then
+                local stock = tonumber(label.Text:match("X(%d+)"))
+                local parent = label.Parent
+                if parent then
+                    for _, sibling in ipairs(parent:GetChildren()) do
+                        if sibling:IsA("TextLabel") and sibling.Text:find("Seed") then
+                            local seedName = sibling.Text:gsub(" Seed", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                            if not seedBlacklist[seedName] then
+                                for i = 1, stock do
+                                    ReplicatedStorage.GameEvents.BuySeedStock:FireServer(seedName)
+                                    totalSpent += 1000
+                                    updatePanel()
+                                    task.wait(0.1 + math.random() * 0.2)
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        task.wait(150)
+    end
+end)
+
+-- Pet Egg Buyer
+task.spawn(function()
+    while true do
+        for name, data in pairs(petEggData) do
+            if coins.Value >= data.price then
+                ReplicatedStorage.GameEvents.BuyPetEgg:FireServer(data.index)
+                eggStats[name] += 1
+                totalSpent += data.price
+                updatePanel()
+                task.wait(1 + math.random())
+            end
+        end
+        task.wait(600)
+    end
+end)
