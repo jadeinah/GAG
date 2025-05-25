@@ -1,9 +1,6 @@
--- ✅ Auto-Farm + GUI Stats + Random Delay + Runtime Panel
-
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local UIS = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
@@ -30,7 +27,6 @@ local petEggData = {
     ["Bug Egg"]       = { index = 6, price = 50000000 },
 }
 
-local blockedPlants = { Mushroom = true, Bamboo = true }
 local seedBlacklist = {
     ["Carrot"] = true, ["Strawberry"] = true, ["Blueberry"] = true,
     ["Orange Tulip"] = true, ["Tomato"] = true, ["Corn"] = true,
@@ -59,10 +55,7 @@ local function updatePanel()
     local mins = math.floor(runtime % 3600 / 60)
     local secs = math.floor(runtime % 60)
 
-    panel.Text = string.format("🍎 Fruits: %d
-🥚 Eggs - L: %d  M: %d  B: %d
-💸 Spent: %s
-⏱️ Time: %02d:%02d:%02d",
+    panel.Text = string.format("🍎 Fruits: %d\n🥚 Eggs - L: %d  M: %d  B: %d\n💸 Spent: %s\n⏱️ Time: %02d:%02d:%02d",
         fruitCollected,
         eggStats["Legendary Egg"],
         eggStats["Mythical Egg"],
@@ -84,7 +77,7 @@ local function sellInventory()
     currentlySelling = false
 end
 
--- Fruit Collector
+-- Collect ALL fruits (no blockedPlants or variant check)
 local function collectFruits()
     if currentlySelling or collecting then return end
     collecting = true
@@ -93,16 +86,15 @@ local function collectFruits()
     if not plants then collecting = false return end
 
     for _, plant in ipairs(plants:GetChildren()) do
-        if blockedPlants[plant.Name] then continue end
         local fruits = plant:FindFirstChild("Fruits")
         if not fruits then continue end
 
         for _, fruit in ipairs(fruits:GetChildren()) do
             if currentlySelling then collecting = false return end
-            local variant = fruit:FindFirstChild("Variant")
-            if not variant or variant.Value ~= "Normal" then continue end
+
             local part = fruit:FindFirstChildWhichIsA("BasePart", true)
             local prompt = fruit:FindFirstChildWhichIsA("ProximityPrompt", true)
+
             if part and prompt and prompt.Enabled then
                 humanoidRootPart.CFrame = part.CFrame + Vector3.new(0, 2, 0)
                 task.wait(0.1 + math.random() * 0.2)
@@ -111,11 +103,13 @@ local function collectFruits()
                 collectedCount += 1
                 fruitCollected += 1
                 updatePanel()
+
                 if collectedCount >= sellThreshold then
                     sellInventory()
                     collecting = false
                     return
                 end
+
                 humanoidRootPart.CFrame = CFrame.new(resumePosition)
             end
         end
@@ -123,13 +117,14 @@ local function collectFruits()
     collecting = false
 end
 
+-- Auto-run collection
 RunService.Heartbeat:Connect(function()
     if not collecting and not currentlySelling then
         collectFruits()
     end
 end)
 
--- Seed Buyer
+-- Seed Buyer (every 2.5 mins)
 task.spawn(function()
     while true do
         humanoidRootPart.CFrame = CFrame.new(seedShopPosition)
@@ -155,11 +150,11 @@ task.spawn(function()
                 end
             end
         end
-        task.wait(150)
+        task.wait(150) -- 2.5 minutes
     end
 end)
 
--- Pet Egg Buyer
+-- Pet Egg Buyer (every 10 mins)
 task.spawn(function()
     while true do
         for name, data in pairs(petEggData) do
@@ -171,6 +166,6 @@ task.spawn(function()
                 task.wait(1 + math.random())
             end
         end
-        task.wait(600)
+        task.wait(600) -- 10 minutes
     end
 end)
