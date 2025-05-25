@@ -35,7 +35,7 @@ local seedBlacklist = {
 }
 
 -- GUI Setup
-local gui = Instance.new("ScreenGui", player.PlayerGui)
+local gui = Instance.new("ScreenGui", player:WaitForChild("PlayerGui"))
 gui.Name = "StatsPanel"
 gui.ResetOnSpawn = false
 
@@ -65,6 +65,15 @@ local function updatePanel()
     )
 end
 
+-- Fire proximity prompt helper
+local function fireproximityprompt(prompt)
+    if prompt then
+        prompt:InputHoldBegin()
+        task.wait(0.1)
+        prompt:InputHoldEnd()
+    end
+end
+
 -- Sell function
 local function sellInventory()
     currentlySelling = true
@@ -82,24 +91,34 @@ local function collectFruits()
     if currentlySelling or collecting then return end
     collecting = true
 
-    local plants = workspace:FindFirstChild("Farm") and workspace.Farm.Farm.Important:FindFirstChild("Plants_Physical")
-    if not plants then collecting = false return end
+    local farm = workspace:FindFirstChild("Farm")
+    local important = farm and farm:FindFirstChild("Important")
+    local plants = important and important:FindFirstChild("Plants_Physical")
+    if not plants then 
+        --print("Plants_Physical not found")
+        collecting = false
+        return 
+    end
 
     for _, plant in ipairs(plants:GetChildren()) do
         local fruits = plant:FindFirstChild("Fruits")
         if not fruits then continue end
 
         for _, fruit in ipairs(fruits:GetChildren()) do
-            if currentlySelling then collecting = false return end
+            if currentlySelling then 
+                collecting = false 
+                return 
+            end
 
             local part = fruit:FindFirstChildWhichIsA("BasePart", true)
             local prompt = fruit:FindFirstChildWhichIsA("ProximityPrompt", true)
 
             if part and prompt and prompt.Enabled then
                 humanoidRootPart.CFrame = part.CFrame + Vector3.new(0, 2, 0)
-                task.wait(0.1 + math.random() * 0.2)
+                task.wait(0.2)  -- wait for character to arrive
                 fireproximityprompt(prompt)
-                task.wait(0.3 + math.random() * 0.3)
+                task.wait(0.4 + math.random() * 0.3)
+
                 collectedCount += 1
                 fruitCollected += 1
                 updatePanel()
@@ -111,13 +130,14 @@ local function collectFruits()
                 end
 
                 humanoidRootPart.CFrame = CFrame.new(resumePosition)
+                task.wait(0.2)
             end
         end
     end
     collecting = false
 end
 
--- Auto-run collection
+-- Auto-run collection on Heartbeat
 RunService.Heartbeat:Connect(function()
     if not collecting and not currentlySelling then
         collectFruits()
