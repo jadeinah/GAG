@@ -1,191 +1,952 @@
+------------------------------------------------------------------------------------------------------------------------------------------------
+--- GLOBALS & SERVICES
+------------------------------------------------------------------------------------------------------------------------------------------------
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local CoreGui = pcall(function() return game:GetService("CoreGui") end) and game:GetService("CoreGui") or Players.LocalPlayer:WaitForChild("PlayerGui")
+local LocalPlayer = Players.LocalPlayer
+local API = ReplicatedStorage:WaitForChild("API")
 
-local player = Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
-local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
-local leaderstats = player:WaitForChild("leaderstats")
-local coins = leaderstats:WaitForChild("Sheckles")
+------------------------------------------------
+-- ANTI-AFK & ANTI-DIALOG SYSTEM
+------------------------------------------------
+local VirtualUser = game:GetService("VirtualUser")
+LocalPlayer.Idled:Connect(function()
+    VirtualUser:CaptureController()
+    VirtualUser:ClickButton2(Vector2.new())
+end)
 
-local collectedCount = 0
-local currentlySelling = false
-local collecting = false
-local totalSpent = 0
-local fruitCollected = 0
-local sessionStart = tick()
-local eggStats = {["Legendary Egg"] = 0, ["Mythical Egg"] = 0, ["Bug Egg"] = 0}
-
-local sellThreshold = 40
-local sellPosition = Vector3.new(62, 3, 0)
-local resumePosition = Vector3.new(8, 10, -65)
-local seedShopPosition = Vector3.new(64, 3, -26)
-
-local petEggData = {
-    ["Legendary Egg"] = { index = 4, price = 3000000 },
-    ["Mythical Egg"]  = { index = 5, price = 8000000 },
-    ["Bug Egg"]       = { index = 6, price = 50000000 },
-}
-
-local seedBlacklist = {
-    ["Carrot"] = true, ["Strawberry"] = true, ["Blueberry"] = true,
-    ["Orange Tulip"] = true, ["Tomato"] = true, ["Corn"] = true,
-    ["Daffodil"] = true, ["Watermelon"] = true, ["Pumpkin"] = true,
-    ["Apple"] = true, ["Raspberry"] = true,
-}
-
--- GUI Setup
-local gui = Instance.new("ScreenGui", player:WaitForChild("PlayerGui"))
-gui.Name = "StatsPanel"
-gui.ResetOnSpawn = false
-
-local panel = Instance.new("TextLabel", gui)
-panel.Position = UDim2.new(0.5, -150, 0, 10)
-panel.Size = UDim2.new(0, 300, 0, 100)
-panel.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-panel.TextColor3 = Color3.fromRGB(255, 255, 255)
-panel.TextScaled = true
-panel.Font = Enum.Font.SourceSansBold
-panel.Text = ""
-
--- Update panel text
-local function updatePanel()
-    local runtime = tick() - sessionStart
-    local hrs = math.floor(runtime / 3600)
-    local mins = math.floor(runtime % 3600 / 60)
-    local secs = math.floor(runtime % 60)
-
-    panel.Text = string.format("🍎 Fruits: %d\n🥚 Eggs - L: %d  M: %d  B: %d\n💸 Spent: %s\n⏱️ Time: %02d:%02d:%02d",
-        fruitCollected,
-        eggStats["Legendary Egg"],
-        eggStats["Mythical Egg"],
-        eggStats["Bug Egg"],
-        tostring(totalSpent),
-        hrs, mins, secs
-    )
-end
-
--- Fire proximity prompt helper
-local function fireproximityprompt(prompt)
-    if prompt then
-        prompt:InputHoldBegin()
-        task.wait(0.1)
-        prompt:InputHoldEnd()
-    end
-end
-
--- Sell function
-local function sellInventory()
-    currentlySelling = true
-    humanoidRootPart.CFrame = CFrame.new(sellPosition)
-    task.wait(0.5 + math.random())
-    ReplicatedStorage.GameEvents.Sell_Inventory:FireServer()
-    collectedCount = 0
-    task.wait(0.5 + math.random())
-    humanoidRootPart.CFrame = CFrame.new(resumePosition)
-    currentlySelling = false
-end
-
--- Collect ALL fruits (no blockedPlants or variant check)
-local function collectFruits()
-    if currentlySelling or collecting then return end
-    collecting = true
-
-    local farm = workspace:FindFirstChild("Farm")
-    local important = farm and farm:FindFirstChild("Important")
-    local plants = important and important:FindFirstChild("Plants_Physical")
-    if not plants then 
-        --print("Plants_Physical not found")
-        collecting = false
-        return 
-    end
-
-    for _, plant in ipairs(plants:GetChildren()) do
-        local fruits = plant:FindFirstChild("Fruits")
-        if not fruits then continue end
-
-        for _, fruit in ipairs(fruits:GetChildren()) do
-            if currentlySelling then 
-                collecting = false 
-                return 
-            end
-
-            local part = fruit:FindFirstChildWhichIsA("BasePart", true)
-            local prompt = fruit:FindFirstChildWhichIsA("ProximityPrompt", true)
-
-            if part and prompt and prompt.Enabled then
-                humanoidRootPart.CFrame = part.CFrame + Vector3.new(0, 2, 0)
-                task.wait(0.2)  -- wait for character to arrive
-                fireproximityprompt(prompt)
-                task.wait(0.4 + math.random() * 0.3)
-
-                collectedCount += 1
-                fruitCollected += 1
-                updatePanel()
-
-                if collectedCount >= sellThreshold then
-                    sellInventory()
-                    collecting = false
-                    return
-                end
-
-                humanoidRootPart.CFrame = CFrame.new(resumePosition)
-                task.wait(0.2)
-            end
+task.spawn(function()
+    local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+    local DialogApp = PlayerGui:WaitForChild("DialogApp", 10)
+    if DialogApp then
+        local Dialog = DialogApp:WaitForChild("Dialog", 10)
+        if Dialog then
+            Dialog.Visible = false
+            Dialog:GetPropertyChangedSignal("Visible"):Connect(function()
+                if Dialog.Visible then Dialog.Visible = false end
+            end)
         end
-    end
-    collecting = false
-end
-
--- Auto-run collection on Heartbeat
-RunService.Heartbeat:Connect(function()
-    if not collecting and not currentlySelling then
-        collectFruits()
     end
 end)
 
--- Seed Buyer (every 2.5 mins)
-task.spawn(function()
-    while true do
-        humanoidRootPart.CFrame = CFrame.new(seedShopPosition)
-        task.wait(1.5)
-        for _, label in ipairs(player.PlayerGui:GetDescendants()) do
-            if label:IsA("TextLabel") and label.Text:match("^X%d+ Stock$") then
-                local stock = tonumber(label.Text:match("X(%d+)"))
-                local parent = label.Parent
-                if parent then
-                    for _, sibling in ipairs(parent:GetChildren()) do
-                        if sibling:IsA("TextLabel") and sibling.Text:find("Seed") then
-                            local seedName = sibling.Text:gsub(" Seed", ""):gsub("^%s+", ""):gsub("%s+$", "")
-                            if not seedBlacklist[seedName] then
-                                for i = 1, stock do
-                                    ReplicatedStorage.GameEvents.BuySeedStock:FireServer(seedName)
-                                    totalSpent += 1000
-                                    updatePanel()
-                                    task.wait(0.1 + math.random() * 0.2)
-                                end
-                            end
-                        end
+------------------------------------------------------------------------------------------------------------------------------------------------
+--- PET GROWING & BOX LOGIC 
+------------------------------------------------------------------------------------------------------------------------------------------------
+local picked_pet, quantity_to_grow, auto_neon_toggle, auto_mega_toggle
+local open_box_toggle = false
+local auto_chest_toggle = false
+local opened_boxes = {}
+local opened_chests = {}
+
+local function sanitize_string(str)
+    return string.lower(string.gsub(tostring(str), "[%s_]", ""))
+end
+
+local function unequip_pets_on_start()
+    API:FindFirstChild("ToolAPI/Unequip"):InvokeServer(LocalPlayer.Character, "Pet")
+end
+
+local function equip_pet(pet_unique)
+    API:FindFirstChild("ToolAPI/Equip"):InvokeServer(pet_unique)
+end
+
+local function get_pet_remote_name(display_name)
+    local target = sanitize_string(display_name)
+    local partial_match = nil
+    
+    for _, z in pairs(ReplicatedStorage.SharedModules.ContentPacks:GetChildren()) do
+        if z:IsA("Folder") and z:FindFirstChild("InventorySubDB") and z.InventorySubDB:FindFirstChild("Pets") then
+            for _, Pet in pairs(require(z.InventorySubDB.Pets)) do
+                local clean_internal = sanitize_string(Pet.kind)
+                if clean_internal == target then return Pet.kind end
+                if not partial_match and string.find(clean_internal, target, 1, true) then partial_match = Pet.kind end
+            end
+        end
+    end
+    return partial_match
+end
+
+local function find_all_basic_pets_uniques(pet_remote_name, how_much_pets_needed)
+    local pets_array = {}
+    local target_name = string.lower(tostring(pet_remote_name)) 
+    for _, v in pairs(require(ReplicatedStorage.ClientModules.Core.ClientData).get_data()[tostring(LocalPlayer)].inventory.pets) do
+        if string.lower(tostring(v.kind)) == target_name and tonumber(v.properties.age or 0) < 6 and not v.properties.neon and not v.properties.mega_neon then
+            if #pets_array == tonumber(how_much_pets_needed) then break else table.insert(pets_array, v.unique) end
+        end
+    end
+    return pets_array
+end
+
+local function find_all_neons_pets_uniques(pet_remote_name, how_much_pets_needed)
+    local pets_array = {}
+    local target_name = string.lower(tostring(pet_remote_name)) 
+    for _, v in pairs(require(ReplicatedStorage.ClientModules.Core.ClientData).get_data()[tostring(LocalPlayer)].inventory.pets) do
+        if string.lower(tostring(v.kind)) == target_name and tonumber(v.properties.age or 0) < 6 and v.properties.neon and not v.properties.mega_neon then
+            if #pets_array == tonumber(how_much_pets_needed) then break else table.insert(pets_array, v.unique) end
+        end
+    end
+    return pets_array
+end
+
+local function get_needed_quantity_of_potions(pet_remote_name)
+    local rarity = ""
+    local target_name = string.lower(tostring(pet_remote_name)) 
+    for _, z in pairs(ReplicatedStorage.SharedModules.ContentPacks:GetChildren()) do
+        if z:IsA("Folder") and z:FindFirstChild("InventorySubDB") and z.InventorySubDB:FindFirstChild("Pets") then
+            for _, Pet in pairs(require(z.InventorySubDB.Pets)) do
+                if string.lower(tostring(Pet.kind)) == target_name then rarity = Pet.rarity break end
+            end
+        end
+    end
+    local rarityMap = {common = 1, uncommon = 2, rare = 2, ultra_rare = 4, legendary = 7}
+    return rarityMap[rarity] or 1
+end
+
+local function find_and_prepare_all_needed_potions(quantity)
+    local potions_uniques_array = {}
+    for _, item in pairs(require(ReplicatedStorage.ClientModules.Core.ClientData).get_data()[tostring(LocalPlayer)].inventory.food) do
+        if item.kind == "pet_age_potion" then
+            if #potions_uniques_array == tonumber(quantity) then break else table.insert(potions_uniques_array, item.unique) end
+        end
+    end
+    if #potions_uniques_array == 0 then return nil, nil end
+    local working_potion = potions_uniques_array[1]
+    table.remove(potions_uniques_array, 1)
+    return working_potion, potions_uniques_array
+end
+
+local function feed_potions(pet_unique, working_potion_unique, sub_potions_array)
+    API:WaitForChild("ToolAPI/Equip"):InvokeServer(tostring(working_potion_unique), { ["use_sound_delay"] = false, ["equip_as_last"] = false })
+    API:WaitForChild("PetObjectAPI/CreatePetObject"):InvokeServer("__Enum_PetObjectCreatorType_2", {
+        ["additional_consume_uniques"] = sub_potions_array,
+        ["pet_unique"] = pet_unique,
+        ["unique_id"] = working_potion_unique
+    })
+    task.wait(0.2) 
+    local potion_object = workspace:WaitForChild("PetObjects"):FindFirstChild("AgePotion")
+    if potion_object then API:WaitForChild("PetAPI/ConsumeFoodObject"):FireServer(potion_object, pet_unique) end
+end
+
+local function do_exactly_growing(pet_remote_name, quantity, neons)
+    local pets_that_will_growed = neons and find_all_neons_pets_uniques(pet_remote_name, quantity) or find_all_basic_pets_uniques(pet_remote_name, quantity)
+    if not pets_that_will_growed or #pets_that_will_growed == 0 then warn("⚠️ No eligible pets found!") return end
+    local needed_potions_quantity = get_needed_quantity_of_potions(pet_remote_name)
+
+    for _, unique in ipairs(pets_that_will_growed) do
+        pcall(function() unequip_pets_on_start() end) 
+        task.wait(0.5) equip_pet(unique) task.wait(0.5)
+        local working_potion, sub_potions_array = find_and_prepare_all_needed_potions(needed_potions_quantity)
+        if not working_potion then warn("❌ Run out of Age-Up Potions!") break end
+        feed_potions(unique, working_potion, sub_potions_array)
+        task.wait(1.5) 
+    end
+end
+
+local function auto_neon()
+    while auto_neon_toggle do
+        local petArray, nameCount, idArray = {}, {}, {}
+        for _, v in pairs(require(ReplicatedStorage.ClientModules.Core.ClientData).get_data()[tostring(LocalPlayer)].inventory.pets) do
+            if tonumber(v.properties.age) == 6 and not v.properties.neon and not v.properties.mega_neon then
+                local petName, petId = v.kind, v.unique
+                table.insert(petArray, { name = petName, id = petId })
+                if not nameCount[petName] then nameCount[petName] = { count = 0, ids = {} } end
+                nameCount[petName].count = nameCount[petName].count + 1
+                table.insert(nameCount[petName].ids, petId)
+            end
+        end
+        for _, data in pairs(nameCount) do
+            if data.count >= 4 then for i = 1, math.min(4, #data.ids) do table.insert(idArray, data.ids[i]) end end
+            if #idArray >= 4 then break end
+        end
+        if #idArray > 0 then pcall(function() API:FindFirstChild("PetAPI/DoNeonFusion"):InvokeServer(idArray) end) end
+        task.wait(2)
+    end
+end
+
+local function auto_mega()
+    while auto_mega_toggle do
+        local petArray, nameCount, idArray = {}, {}, {}
+        for _, v in pairs(require(ReplicatedStorage.ClientModules.Core.ClientData).get_data()[tostring(LocalPlayer)].inventory.pets) do
+            if tonumber(v.properties.age) == 6 and v.properties.neon then
+                local petName, petId = v.kind, v.unique
+                table.insert(petArray, { name = petName, id = petId })
+                if not nameCount[petName] then nameCount[petName] = { count = 0, ids = {} } end
+                nameCount[petName].count = nameCount[petName].count + 1
+                table.insert(nameCount[petName].ids, petId)
+            end
+        end
+        for _, data in pairs(nameCount) do
+            if data.count >= 4 then for i = 1, math.min(4, #data.ids) do table.insert(idArray, data.ids[i]) end end
+            if #idArray >= 4 then break end
+        end
+        if #idArray > 0 then pcall(function() API:FindFirstChild("PetAPI/DoNeonFusion"):InvokeServer(idArray) end) end
+        task.wait(2)
+    end
+end
+
+local function find_item_unique(item_remote_name, tracked_table)
+    local playerData = require(ReplicatedStorage.ClientModules.Core.ClientData).get_data()[tostring(LocalPlayer)]
+    local clean_input = sanitize_string(item_remote_name)
+    
+    if playerData and playerData.inventory then
+        for category, items in pairs(playerData.inventory) do
+            if category ~= "pets" and category ~= "food" then
+                for _, v in pairs(items) do
+                    local current_kind = sanitize_string(v.kind)
+                    if (current_kind == clean_input or string.find(current_kind, clean_input, 1, true)) and not tracked_table[tostring(v.unique)] then 
+                        return tostring(v.unique), tostring(v.kind)
                     end
                 end
             end
         end
-        task.wait(150) -- 2.5 minutes
+    end
+    return nil, nil
+end
+
+local function open_box_loop(box_remote_name)
+    if not box_remote_name or box_remote_name == "" then return end
+    while open_box_toggle do
+        local unique = find_item_unique(box_remote_name, opened_boxes)
+        if unique then 
+            opened_boxes[unique] = true 
+            local success, err = pcall(function()
+                API:WaitForChild("ToolAPI/Equip"):InvokeServer(tostring(unique), { ["use_sound_delay"] = true, ["equip_as_last"] = false })
+                task.wait(0.3)
+                API:WaitForChild("ToolAPI/ServerUseTool"):InvokeServer(tostring(unique), "START")
+                task.wait(0.1)
+                API:WaitForChild("ShopAPI/OpenGift"):InvokeServer(tostring(unique))
+                task.wait(0.1)
+                API:WaitForChild("ToolAPI/ServerUseTool"):InvokeServer(tostring(unique), "END")
+            end)
+            if success then task.wait(2.5) else warn("❌ Failed to open gift: ", err) task.wait(2) end
+        else task.wait(1) end
+    end
+end
+
+local function open_chest_loop(chest_remote_name)
+    if not chest_remote_name or chest_remote_name == "" then return end
+    while auto_chest_toggle do
+        local unique, real_kind = find_item_unique(chest_remote_name, opened_chests)
+        if unique and real_kind then 
+            opened_chests[unique] = true 
+            local success, err = pcall(function()
+                API:WaitForChild("ToolAPI/Equip"):InvokeServer(tostring(unique), { ["use_sound_delay"] = true, ["equip_as_last"] = false })
+                task.wait(0.3)
+                API:WaitForChild("LootBoxAPI/ExchangeItemForReward"):InvokeServer(tostring(real_kind), tostring(unique))
+            end)
+            if success then task.wait(2.7) else warn("❌ Failed to open chest: ", err) task.wait(2) end
+        else task.wait(1) end
+    end
+end
+
+------------------------------------------------------------------------------------------------------------------------------------------------
+--- TRADING ENGINE LOGIC 
+------------------------------------------------------------------------------------------------------------------------------------------------
+local trade_isRunning = false
+local pets_unique_ids = {}
+local selectedRarity = "Normal"
+
+local function dehash()
+    pcall(function()
+        local Router = require(ReplicatedStorage.ClientModules.Core.RouterClient.RouterClient)
+        local get_upval = debug.getupvalue or getupvalue
+        for i = 1, 15 do
+            local name, val = get_upval(Router.init, i)
+            if type(val) == "table" and val.AddFriendAPI then
+                for k, v in pairs(val) do
+                    if typeof(v) == "Instance" then v.Name = k end
+                end
+                return
+            end
+        end
+    end)
+end
+
+local function get_items_for_trade(targetInput, max)
+    local found = {}
+    local ok, ClientData = pcall(require, ReplicatedStorage.ClientModules.Core.ClientData)
+    if not ok or not ClientData then return found end
+
+    local playerData = ClientData.get_data()[LocalPlayer.Name]
+    if not playerData or not playerData.inventory then return found end
+
+    local targetLower = targetInput:lower()
+    local normTarget  = sanitize_string(targetInput)
+    local categories  = {"pets", "gifts", "toys"}
+
+    for _, cat in ipairs(categories) do
+        if playerData.inventory[cat] then
+            for uid, data in pairs(playerData.inventory[cat]) do
+                local normKind = sanitize_string(data.kind or "")
+                local props    = data.properties or {}
+
+                local nameMatch = (targetLower == cat) or (targetLower == "all")
+                    or (normKind == normTarget) or (normKind:find(normTarget, 1, true) ~= nil)
+                    or (normTarget:find(normKind, 1, true) ~= nil) or (uid == targetInput)
+
+                if nameMatch then
+                    local isMega   = props.mega_neon == true
+                    local isNeon   = props.neon == true and not isMega
+                    local isNormal = not props.neon and not props.mega_neon
+
+                    local rarityMatch = (selectedRarity == "ALL") or (selectedRarity == "Normal" and isNormal)
+                                     or (selectedRarity == "Neon" and isNeon) or (selectedRarity == "Mega" and isMega)
+
+                    if rarityMatch then
+                        table.insert(found, data.unique or uid)
+                        if #found >= max then return found end
+                    end
+                end
+            end
+        end
+    end
+    return found
+end
+
+------------------------------------------------------------------------------------------------------------------------------------------------
+--- CUSTOM BUILT-IN UI W/ SIDEBAR LAYOUT (IMPROVED MIDNIGHT THEME)
+------------------------------------------------------------------------------------------------------------------------------------------------
+if CoreGui:FindFirstChild("CustomGrowUI") then CoreGui.CustomGrowUI:Destroy() end
+
+local ScreenGui = Instance.new("ScreenGui", CoreGui)
+ScreenGui.Name = "CustomGrowUI"
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+local MainFrame = Instance.new("Frame", ScreenGui)
+MainFrame.BackgroundColor3 = Color3.fromRGB(24, 25, 30) -- Darker midnight aesthetic
+MainFrame.BorderSizePixel = 0
+MainFrame.Position = UDim2.new(0.5, -250, 0.5, -260)
+MainFrame.Size = UDim2.new(0, 520, 0, 520)
+MainFrame.Active = true
+MainFrame.Draggable = true 
+Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 10)
+
+-- Main Stroke
+local MainStroke = Instance.new("UIStroke", MainFrame)
+MainStroke.Color = Color3.fromRGB(55, 60, 75)
+MainStroke.Thickness = 1
+MainStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+
+-- Topbar App
+local Topbar = Instance.new("Frame", MainFrame)
+Topbar.BackgroundColor3 = Color3.fromRGB(30, 32, 40)
+Topbar.BorderSizePixel = 0
+Topbar.Size = UDim2.new(1, 0, 0, 44)
+Instance.new("UICorner", Topbar).CornerRadius = UDim.new(0, 10)
+
+local TopbarBlocker = Instance.new("Frame", Topbar)
+TopbarBlocker.BackgroundColor3 = Color3.fromRGB(30, 32, 40)
+TopbarBlocker.BorderSizePixel = 0
+TopbarBlocker.Position = UDim2.new(0, 0, 1, -10)
+TopbarBlocker.Size = UDim2.new(1, 0, 0, 10)
+
+local Title = Instance.new("TextLabel", Topbar)
+Title.BackgroundTransparency = 1
+Title.Size = UDim2.new(1, -40, 1, 0)
+Title.Position = UDim2.new(0, 20, 0, 0)
+Title.Font = Enum.Font.GothamBold
+Title.Text = "✨ Zenith Hub v2"
+Title.TextColor3 = Color3.fromRGB(240, 210, 90) -- Gold accent
+Title.TextSize = 16
+Title.TextXAlignment = Enum.TextXAlignment.Left
+
+local CloseButton = Instance.new("TextButton", Topbar)
+CloseButton.BackgroundTransparency = 1
+CloseButton.Position = UDim2.new(1, -44, 0, 0)
+CloseButton.Size = UDim2.new(0, 44, 1, 0)
+CloseButton.Font = Enum.Font.GothamBold
+CloseButton.Text = "X"
+CloseButton.TextColor3 = Color3.fromRGB(255, 95, 95)
+CloseButton.TextSize = 16
+CloseButton.MouseButton1Click:Connect(function() ScreenGui:Destroy() end)
+
+-- Sidebar Control Navigation
+local Sidebar = Instance.new("Frame", MainFrame)
+Sidebar.BackgroundColor3 = Color3.fromRGB(20, 21, 26)
+Sidebar.BorderSizePixel = 0
+Sidebar.Position = UDim2.new(0, 0, 0, 44)
+Sidebar.Size = UDim2.new(0, 140, 1, -44)
+Instance.new("UICorner", Sidebar).CornerRadius = UDim.new(0, 10)
+
+local SidebarBlocker = Instance.new("Frame", Sidebar) 
+SidebarBlocker.BackgroundColor3 = Color3.fromRGB(20, 21, 26)
+SidebarBlocker.BorderSizePixel = 0
+SidebarBlocker.Position = UDim2.new(1, -10, 0, 0)
+SidebarBlocker.Size = UDim2.new(0, 10, 1, 0)
+SidebarBlocker.ZIndex = 0
+
+local SidebarBtnContainer = Instance.new("Frame", Sidebar)
+SidebarBtnContainer.BackgroundTransparency = 1
+SidebarBtnContainer.Position = UDim2.new(0, 8, 0, 12)
+SidebarBtnContainer.Size = UDim2.new(1, -16, 1, -24)
+
+local SidebarLayout = Instance.new("UIListLayout", SidebarBtnContainer)
+SidebarLayout.Padding = UDim.new(0, 6) 
+SidebarLayout.SortOrder = Enum.SortOrder.LayoutOrder
+
+-- Containers Creator Function
+local function createContainer()
+    local Container = Instance.new("ScrollingFrame", MainFrame)
+    Container.BackgroundTransparency = 1
+    Container.Position = UDim2.new(0, 155, 0, 56)
+    Container.Size = UDim2.new(1, -170, 1, -115) 
+    Container.ScrollBarThickness = 4
+    Container.ScrollBarImageColor3 = Color3.fromRGB(70, 75, 90)
+    Container.BorderSizePixel = 0
+    Container.Visible = false
+    Container.AutomaticCanvasSize = Enum.AutomaticSize.Y
+
+    local Layout = Instance.new("UIListLayout", Container)
+    Layout.Padding = UDim.new(0, 10) 
+    Layout.SortOrder = Enum.SortOrder.LayoutOrder 
+    
+    Layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        Container.CanvasSize = UDim2.new(0, 0, 0, Layout.AbsoluteContentSize.Y + 20)
+    end)
+    return Container
+end
+
+local PetsContainer = createContainer()
+local BoxesContainer = createContainer()
+local TradeContentContainer = createContainer()
+local FarmContentContainer = createContainer()
+local PetPenContentContainer = createContainer()
+local HotdogContentContainer = createContainer() -- NEW CONTAINER
+local ReleaseContentContainer = createContainer()
+local MainLockContainer = createContainer()
+
+MainLockContainer.Position = UDim2.new(0, 20, 0, 60)
+MainLockContainer.Size = UDim2.new(1, -40, 1, -120)
+
+local tabRegistry = {}
+local function CreateTabButton(text, targetContainer)
+    local Btn = Instance.new("TextButton", SidebarBtnContainer) 
+    Btn.Size = UDim2.new(1, 0, 0, 36)
+    Btn.BackgroundColor3 = Color3.fromRGB(45, 50, 65)
+    Btn.BackgroundTransparency = 1
+    Btn.Font = Enum.Font.GothamSemibold
+    Btn.Text = "  " .. text
+    Btn.TextColor3 = Color3.fromRGB(150, 155, 170)
+    Btn.TextSize = 12
+    Btn.TextXAlignment = Enum.TextXAlignment.Left
+    Instance.new("UICorner", Btn).CornerRadius = UDim.new(0, 6)
+    
+    table.insert(tabRegistry, {button = Btn, container = targetContainer})
+    
+    Btn.MouseButton1Click:Connect(function()
+        for _, entry in ipairs(tabRegistry) do
+            entry.container.Visible = false
+            entry.button.BackgroundTransparency = 1
+            entry.button.TextColor3 = Color3.fromRGB(150, 155, 170)
+        end
+        targetContainer.Visible = true
+        Btn.BackgroundTransparency = 0.4
+        Btn.TextColor3 = Color3.fromRGB(240, 210, 90) -- Gold accent for active tab
+    end)
+    return Btn
+end
+
+local PetsTabBtn    = CreateTabButton("🧪 Potion Farm", PetsContainer)
+local BoxesTabBtn   = CreateTabButton("📦 Open Boxes", BoxesContainer)
+local TradeTabBtn   = CreateTabButton("🤝 Auto Trade", TradeContentContainer)
+local FarmTabBtn    = CreateTabButton("🥚 Auto Farm", FarmContentContainer)
+local PetPenTabBtn  = CreateTabButton("🏡 Pet Pen", PetPenContentContainer)
+local HotdogTabBtn  = CreateTabButton("🌭 Hotdog Pay", HotdogContentContainer) -- NEW TAB BUTTON
+local ReleaseTabBtn = CreateTabButton("♻️ Auto Release", ReleaseContentContainer)
+
+Sidebar.Visible = false
+MainLockContainer.Visible = true
+
+local function unlockHub()
+    MainLockContainer.Visible = false
+    Sidebar.Visible = true
+    PetsContainer.Visible = true
+    PetsTabBtn.BackgroundTransparency = 0.4
+    PetsTabBtn.TextColor3 = Color3.fromRGB(240, 210, 90)
+end
+
+-- Universal UI Component Builders
+local function CreateLabel(text, parent)
+    local Label = Instance.new("TextLabel", parent)
+    Label.BackgroundTransparency = 1
+    Label.Size = UDim2.new(1, 0, 0, 24)
+    Label.Font = Enum.Font.GothamBold
+    Label.Text = text
+    Label.TextColor3 = Color3.fromRGB(230, 235, 245)
+    Label.TextSize = 14
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.TextWrapped = true
+    return Label
+end
+
+local function CreateInput(placeholder, parent, callback)
+    local InputContainer = Instance.new("Frame", parent)
+    InputContainer.BackgroundTransparency = 1
+    InputContainer.Size = UDim2.new(1, -5, 0, 40)
+    
+    local TextBox = Instance.new("TextBox", InputContainer)
+    TextBox.BackgroundColor3 = Color3.fromRGB(30, 32, 40)
+    TextBox.Size = UDim2.new(1, 0, 1, 0)
+    TextBox.Font = Enum.Font.Gotham
+    TextBox.PlaceholderText = placeholder
+    TextBox.PlaceholderColor3 = Color3.fromRGB(120, 125, 140)
+    TextBox.Text = ""
+    TextBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+    TextBox.TextSize = 13
+    TextBox.ClearTextOnFocus = false
+    Instance.new("UICorner", TextBox).CornerRadius = UDim.new(0, 6)
+    
+    local Stroke = Instance.new("UIStroke", TextBox)
+    Stroke.Color = Color3.fromRGB(60, 65, 80)
+    Stroke.Thickness = 1
+    Stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    
+    if callback then TextBox.FocusLost:Connect(function() callback(TextBox.Text) end) end
+    return TextBox
+end
+
+local function CreateButton(text, color, parent, callback)
+    local Button = Instance.new("TextButton", parent)
+    Button.BackgroundColor3 = color
+    Button.Size = UDim2.new(1, -5, 0, 40)
+    Button.Font = Enum.Font.GothamBold
+    Button.Text = text
+    Button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Button.TextSize = 13
+    Instance.new("UICorner", Button).CornerRadius = UDim.new(0, 6)
+    
+    local Stroke = Instance.new("UIStroke", Button)
+    Stroke.Color = Color3.fromRGB(255, 255, 255)
+    Stroke.Transparency = 0.85
+    Stroke.Thickness = 1
+    Stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    
+    if callback then Button.MouseButton1Click:Connect(callback) end
+    return Button
+end
+
+-- ==================== GLOBAL HARDCODED APP SETTINGS ====================
+getgenv().Config = {
+    ["PetAMountToBuy"] = "0", 
+    ["WhatCategory"] = "pets", 
+    ["PetRemoteToBuy"] = "Royal Egg", 
+    ["check_for_2d_kitty"] = true, 
+    ["PetFarmActive"] = true, 
+    ["EggFarmActive"] = false, 
+    ["EggToIgnore"] = {"Crystal Egg"}, 
+    ["LoopBuyEgg"] = false, 
+    ["EggToBuyEgg"] = "Royal Egg",
+    ["PetPenActive"] = true, 
+    ["PetPenFocusPriority"] = false, 
+    ["PetPenFocusPetOrder"] = {"Donkey", "Golden Dragon"}, 
+    ["PetPenFocusPetRarity"] = false, 
+    ["PetPenFocusPetRarityOrder"] = {"legendary","rare"}, 
+    ["PetPenAutoNeon"] = false, 
+    ["PetPenAutoMega"] = false, 
+    ["HodDogStandHOLDER"] = "", 
+    ["HodDogStandHOLDERPrice"] = "50", 
+    ["HodDogStandTransfer"] = false, 
+    ["AutoBuyStuffRecyclePoint"] = true, 
+    ["ItemToBuyInRecyclePoint"] = "Crystal Egg", 
+    ["AutoReleasePet"] = true, 
+    ["OnlyReleasePetList"] = {""}, 
+    ["GlobalBlacklist"] = {""}, 
+    ["LegendaryAllowedToRecycle"] = {""}, 
+    ["RecycleOnlyPetWithAge"] = "", 
+    ["common"] = true,
+    ["uncommon"] = true,
+    ["rare"] = true,
+    ["ultra_rare"] = true,
+    ["legendary"] = false, 
+    ["HideUselessGui"] = false, 
+    ["Blur_username"] = false,  
+}
+
+local function CreateConfigToggle(labelText, configKey, parent)
+    local defaultState = getgenv().Config[configKey]
+    local btn = CreateButton(
+        defaultState and ("🟢 " .. labelText .. ": ON") or ("🔴 " .. labelText .. ": OFF"),
+        defaultState and Color3.fromRGB(40, 110, 60) or Color3.fromRGB(90, 40, 40),
+        parent, nil
+    )
+    btn.MouseButton1Click:Connect(function()
+        getgenv().Config[configKey] = not getgenv().Config[configKey]
+        if getgenv().Config[configKey] then
+            btn.Text = "🟢 " .. labelText .. ": ON"; btn.BackgroundColor3 = Color3.fromRGB(40, 110, 60)
+        else
+            btn.Text = "🔴 " .. labelText .. ": OFF"; btn.BackgroundColor3 = Color3.fromRGB(90, 40, 40)
+        end
+    end)
+    return btn
+end
+
+local function CreateConfigInput(labelText, configKey, parent, isTable)
+    local TitleLabel = Instance.new("TextLabel", parent)
+    TitleLabel.BackgroundTransparency = 1
+    TitleLabel.Size = UDim2.new(1, -5, 0, 18)
+    TitleLabel.Font = Enum.Font.GothamSemibold
+    TitleLabel.Text = " " .. labelText
+    TitleLabel.TextColor3 = Color3.fromRGB(180, 185, 200)
+    TitleLabel.TextSize = 12
+    TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    
+    local inp = CreateInput("Type here...", parent, function(val)
+        if isTable then
+            local t = {}
+            for s in string.gmatch(val, "([^,;|]+)") do table.insert(t, string.match(s, "^%s*(.-)%s*$")) end
+            if val == "" then t = {""} end
+            getgenv().Config[configKey] = t
+        else
+            getgenv().Config[configKey] = tostring(val)
+        end
+    end)
+    
+    local default = getgenv().Config[configKey]
+    inp.Text = type(default) == "table" and table.concat(default, ", ") or tostring(default)
+    return inp
+end
+
+-- ==================== KEY SYSTEM SECURITY ====================
+local REQUIRED_TRADE_KEY = "FallbackKey123" 
+task.spawn(function()
+    local success, _ = pcall(function()
+        local fetched_key = game:HttpGet("http://192.168.100.83:5000/get-key")
+        if fetched_key and fetched_key ~= "" then REQUIRED_TRADE_KEY = string.match(fetched_key, "^%s*(.-)%s*$") end
+    end)
+end)
+
+CreateLabel("🔒 Hub Access Key Needed:", MainLockContainer)
+local KeyInputBox = CreateInput("🔑 Enter your key here...", MainLockContainer)
+CreateButton("🔓 Unlock Hub", Color3.fromRGB(60, 70, 130), MainLockContainer, function()
+    if KeyInputBox.Text == REQUIRED_TRADE_KEY then
+        unlockHub()
+    else
+        KeyInputBox.Text = ""
+        KeyInputBox.PlaceholderText = "❌ Invalid Key!"
+        task.wait(1.5)
+        KeyInputBox.PlaceholderText = "🔑 Enter your key here..."
     end
 end)
 
--- Pet Egg Buyer (every 10 mins)
-task.spawn(function()
-    while true do
-        for name, data in pairs(petEggData) do
-            if coins.Value >= data.price then
-                ReplicatedStorage.GameEvents.BuyPetEgg:FireServer(data.index)
-                eggStats[name] += 1
-                totalSpent += data.price
-                updatePanel()
-                task.wait(1 + math.random())
+-- ==================== TAB 1: POTION FARM (MANUAL) ====================
+CreateLabel("🛠️ Select Pet to Grow:", PetsContainer)
+local RemoteLabel = CreateLabel("➡️ Selected Pet: None", PetsContainer)
+RemoteLabel.TextColor3 = Color3.fromRGB(150, 155, 170)
+RemoteLabel.TextSize = 12
+
+local pet_search = CreateInput("🔍 Enter Pet Name (e.g., Red Panda)", PetsContainer, function(text)
+    local found_remote = get_pet_remote_name(text)
+    if found_remote then
+        picked_pet = found_remote
+        RemoteLabel.Text = "➡️ Selected Pet: " .. tostring(found_remote)
+        RemoteLabel.TextColor3 = Color3.fromRGB(100, 240, 100)
+    else
+        RemoteLabel.Text = "➡️ Selected Pet: Not Found!"
+        RemoteLabel.TextColor3 = Color3.fromRGB(240, 100, 100)
+    end
+end)
+
+local qty_search = CreateInput("🔢 How many pets to grow?", PetsContainer, function(text) quantity_to_grow = tonumber(text) end)
+
+CreateLabel("🚀 Potion Controls:", PetsContainer)
+CreateButton("✅ Grow Normal Pet", Color3.fromRGB(30, 100, 160), PetsContainer, function()
+    pcall(unequip_pets_on_start)
+    if picked_pet and quantity_to_grow then do_exactly_growing(picked_pet, quantity_to_grow, false) else warn("Specify target!") end
+end)
+
+CreateButton("✨ Grow Neon Pet", Color3.fromRGB(160, 100, 30), PetsContainer, function()
+    pcall(unequip_pets_on_start)
+    if picked_pet and quantity_to_grow then do_exactly_growing(picked_pet, quantity_to_grow, true) else warn("Specify target!") end
+end)
+
+CreateLabel("💫 Auto Fuse Pets:", PetsContainer)
+local neon_btn
+neon_btn = CreateButton("🔴 Auto Make Neon: OFF", Color3.fromRGB(90, 40, 40), PetsContainer, function()
+    auto_neon_toggle = not auto_neon_toggle
+    if auto_neon_toggle then
+        neon_btn.Text = "🟢 Auto Make Neon: ON"; neon_btn.BackgroundColor3 = Color3.fromRGB(40, 110, 60); task.spawn(auto_neon)
+    else
+        neon_btn.Text = "🔴 Auto Make Neon: OFF"; neon_btn.BackgroundColor3 = Color3.fromRGB(90, 40, 40)
+    end
+end)
+
+local mega_btn
+mega_btn = CreateButton("🔴 Auto Make Mega: OFF", Color3.fromRGB(90, 40, 40), PetsContainer, function()
+    auto_mega_toggle = not auto_mega_toggle
+    if auto_mega_toggle then
+        mega_btn.Text = "🟣 Auto Make Mega: ON"; mega_btn.BackgroundColor3 = Color3.fromRGB(110, 40, 130); task.spawn(auto_mega)
+    else
+        mega_btn.Text = "🔴 Auto Make Mega: OFF"; mega_btn.BackgroundColor3 = Color3.fromRGB(90, 40, 40)
+    end
+end)
+
+-- ==================== TAB 2: BOX / CHESTS ====================
+CreateLabel("📦 Auto Open Gifts:", BoxesContainer)
+local box_input = CreateInput("🏷️ Enter Gift Box Name...", BoxesContainer, function() opened_boxes = {} end)
+
+local box_toggle_btn
+box_toggle_btn = CreateButton("🔴 Auto Open Gift: OFF", Color3.fromRGB(90, 40, 40), BoxesContainer, function()
+    open_box_toggle = not open_box_toggle
+    if open_box_toggle then
+        box_toggle_btn.Text = "🟢 Auto Open Gift: ON"; box_toggle_btn.BackgroundColor3 = Color3.fromRGB(40, 110, 60)
+        task.spawn(function() open_box_loop(box_input.Text) end)
+    else
+        box_toggle_btn.Text = "🔴 Auto Open Gift: OFF"; box_toggle_btn.BackgroundColor3 = Color3.fromRGB(90, 40, 40)
+    end
+end)
+
+CreateLabel("🧰 Auto Open Chests:", BoxesContainer)
+local chest_input = CreateInput("🏷️ Enter Chest Name...", BoxesContainer, function() opened_chests = {} end)
+
+local auto_chest_toggle_btn
+auto_chest_toggle_btn = CreateButton("🔴 Auto Open Chest: OFF", Color3.fromRGB(90, 40, 40), BoxesContainer, function()
+    auto_chest_toggle = not auto_chest_toggle
+    if auto_chest_toggle then
+        auto_chest_toggle_btn.Text = "🟢 Auto Open Chest: ON"; auto_chest_toggle_btn.BackgroundColor3 = Color3.fromRGB(40, 110, 60)
+        task.spawn(function() open_chest_loop(chest_input.Text) end)
+    else
+        auto_chest_toggle_btn.Text = "🔴 Auto Open Chest: OFF"; auto_chest_toggle_btn.BackgroundColor3 = Color3.fromRGB(90, 40, 40)
+    end
+end)
+
+-- ==================== TAB 3: AUTO TRADE ENGINE ====================
+CreateLabel("🤝 Auto Trade Setup:", TradeContentContainer)
+local TradeUserInp = CreateInput("👤 Target Usernames (Use commas)", TradeContentContainer)
+local TradeItemNameInp = CreateInput("🔍 Item to Trade (Blank = all)", TradeContentContainer)
+local TradeCountInp = CreateInput("🔢 Max Items per Trade (1-18)", TradeContentContainer)
+TradeCountInp.Text = "18"
+
+local categoryOptions, categoryEmoji, categoryIndex, selectedCategory = {"pets", "gifts", "toys"}, {pets = "🐾", gifts = "🎁", toys = "🧸"}, 1, "pets"
+local CategoryBtn
+CategoryBtn = CreateButton("🐾 Trading Category: pets", Color3.fromRGB(50, 55, 70), TradeContentContainer, function()
+    categoryIndex = categoryIndex % #categoryOptions + 1
+    selectedCategory = categoryOptions[categoryIndex]
+    CategoryBtn.Text = categoryEmoji[selectedCategory] .. " Trading Category: " .. selectedCategory
+end)
+
+local rarityOptions, rarityEmoji, rarityIndex = {"Normal", "Neon", "Mega", "ALL"}, {Normal = "⚪", Neon = "🟢", Mega = "🟣", ALL = "🌈"}, 1
+local RarityBtn
+RarityBtn = CreateButton("⚪ Pet Rarity: Normal", Color3.fromRGB(50, 55, 70), TradeContentContainer, function()
+    rarityIndex = rarityIndex % #rarityOptions + 1
+    selectedRarity = rarityOptions[rarityIndex]
+    RarityBtn.Text = rarityEmoji[selectedRarity] .. " Pet Rarity: " .. selectedRarity
+end)
+
+local StatusLabel = CreateLabel("Status: Waiting...", TradeContentContainer)
+StatusLabel.TextColor3 = Color3.fromRGB(150, 200, 255)
+local ItemsFoundLabel = CreateLabel("Items Found: None", TradeContentContainer)
+ItemsFoundLabel.TextColor3 = Color3.fromRGB(100, 240, 100)
+
+local StartTradeBtn
+StartTradeBtn = CreateButton("▶ START AUTO TRADE", Color3.fromRGB(30, 130, 30), TradeContentContainer, function()
+    if trade_isRunning then
+        trade_isRunning = false
+        StartTradeBtn.Text = "▶ START AUTO TRADE"; StartTradeBtn.BackgroundColor3 = Color3.fromRGB(30, 130, 30)
+        StatusLabel.Text = "Status: Operation Terminated."
+        return
+    end
+    trade_isRunning = true
+    StartTradeBtn.Text = "⏹ STOP AUTO TRADE"; StartTradeBtn.BackgroundColor3 = Color3.fromRGB(160, 30, 30)
+    dehash()
+
+    local rawUsers = TradeUserInp.Text:gsub(" ", "")
+    local usernames = string.split(rawUsers, ",")
+    local targetItem = (TradeItemNameInp.Text ~= "") and TradeItemNameInp.Text or selectedCategory
+    local maxItems = tonumber(TradeCountInp.Text) or 18
+    local perTrade = math.min(maxItems, 18)
+
+    task.spawn(function()
+        for _, user in ipairs(usernames) do
+            if not trade_isRunning then break end
+            local target = Players:FindFirstChild(user)
+            if not target then StatusLabel.Text = "⚠️ Client " .. user .. " offline!"; task.wait(25); continue end
+
+            pets_unique_ids = get_items_for_trade(targetItem, maxItems)
+            ItemsFoundLabel.Text = "Items Found: " .. #pets_unique_ids .. " (" .. selectedRarity .. ")"
+            if #pets_unique_ids == 0 then StatusLabel.Text = "⚠️ Found 0 target assets for " .. user; task.wait(2.5); continue end
+
+            while #pets_unique_ids > 0 and Players:FindFirstChild(user) and trade_isRunning do
+                local tradeApp = LocalPlayer.PlayerGui:FindFirstChild("TradeApp")
+                if not tradeApp or not tradeApp.Frame.Visible then
+                    StatusLabel.Text = "📤 Sending Trade Request..."
+                    API["TradeAPI/SendTradeRequest"]:FireServer(target)
+                    local start = tick()
+                    repeat task.wait(0.5); tradeApp = LocalPlayer.PlayerGui:FindFirstChild("TradeApp")
+                    until (tradeApp and tradeApp.Frame.Visible) or (tick() - start > 12)
+                end
+                tradeApp = LocalPlayer.PlayerGui:FindFirstChild("TradeApp")
+                if tradeApp and tradeApp.Frame.Visible then
+                    local batch = math.min(#pets_unique_ids, perTrade)
+                    StatusLabel.Text = "🛒 Loading " .. batch .. " items..."
+                    for _ = 1, batch do
+                        if not trade_isRunning then break end
+                        API["TradeAPI/AddItemToOffer"]:FireServer(table.remove(pets_unique_ids, 1))
+                        task.wait(0.0)
+                    end
+                    ItemsFoundLabel.Text = "Items left in queue: " .. #pets_unique_ids
+
+                    StatusLabel.Text = "✅ Accepting Trade..."
+                    local acceptTime = 0
+                    while tradeApp and tradeApp.Frame.Visible and acceptTime < 12 and trade_isRunning do
+                        API["TradeAPI/AcceptNegotiation"]:FireServer(); task.wait(0.8); acceptTime += 0.8
+                    end
+
+                    StatusLabel.Text = "🔒 Confirming Trade..."
+                    local waited = 0
+                    while tradeApp and tradeApp.Frame.Visible and waited < 25 and trade_isRunning do
+                        API["TradeAPI/ConfirmTrade"]:FireServer(); task.wait(1); waited += 1
+                    end
+                    repeat task.wait(0.5); tradeApp = LocalPlayer.PlayerGui:FindFirstChild("TradeApp")
+                    until not tradeApp or not tradeApp.Frame.Visible or not trade_isRunning
+                    task.wait(1.5)
+                end
             end
         end
-        task.wait(600) -- 10 minutes
+        trade_isRunning = false
+        StatusLabel.Text = "🎉 TRADE COMPLETED!"
+        StartTradeBtn.Text = "▶ START AUTO TRADE"; StartTradeBtn.BackgroundColor3 = Color3.fromRGB(30, 130, 30)
+    end)
+end)
+
+local autoaccept_status = false
+local function auto_accept_loop()
+    task.spawn(function()
+        while autoaccept_status do
+            local tradeApp = LocalPlayer.PlayerGui:FindFirstChild("TradeApp")
+            if tradeApp and tradeApp.Frame.Visible then
+                pcall(function()
+                    API["TradeAPI/AcceptNegotiation"]:FireServer()
+                    API["TradeAPI/ConfirmTrade"]:FireServer()
+                end)
+            end
+            task.wait(0.8) 
+        end
+    end)
+end
+
+CreateLabel("💎 Auto Accept Trades:", TradeContentContainer)
+local auto_accept_btn
+auto_accept_btn = CreateButton("🔴 Auto Accept All Trades: OFF", Color3.fromRGB(90, 40, 40), TradeContentContainer, function()
+    autoaccept_status = not autoaccept_status
+    if autoaccept_status then
+        auto_accept_btn.Text = "🟢 Auto Accept All Trades: ON"; auto_accept_btn.BackgroundColor3 = Color3.fromRGB(40, 110, 60)
+        auto_accept_loop()
+    else
+        auto_accept_btn.Text = "🔴 Auto Accept All Trades: OFF"; auto_accept_btn.BackgroundColor3 = Color3.fromRGB(90, 40, 40)
+    end
+end)
+
+-- ==================== TAB 4: 🥚 SUB-TAB AUTO FARM ====================
+CreateLabel("🛒 Auto Buy Settings", FarmContentContainer)
+CreateConfigInput("Max Items to Buy (e.g. 999)", "PetAMountToBuy", FarmContentContainer, false)
+CreateConfigInput("Category to Buy (pets / gifts)", "WhatCategory", FarmContentContainer, false)
+CreateConfigInput("Item/Egg Name to Buy", "PetRemoteToBuy", FarmContentContainer, false)
+
+CreateLabel("🌾 Auto Farm Settings", FarmContentContainer)
+CreateConfigToggle("Farm 2D Kitty Event", "check_for_2d_kitty", FarmContentContainer)
+CreateConfigToggle("Auto Farm Potions", "PetFarmActive", FarmContentContainer)
+CreateConfigToggle("Auto Hatch Eggs", "EggFarmActive", FarmContentContainer)
+CreateConfigToggle("Auto Buy Eggs Continuously", "LoopBuyEgg", FarmContentContainer)
+
+CreateConfigInput("Which Egg to Buy?", "EggToBuyEgg", FarmContentContainer, false)
+CreateConfigInput("Eggs to Ignore (Do not hatch)", "EggToIgnore", FarmContentContainer, true)
+
+CreateLabel("⚡ Start Farming", FarmContentContainer)
+CreateButton("▶ START AUTO FARM SCRIPT", Color3.fromRGB(75, 30, 150), FarmContentContainer, function()
+    pcall(function()
+        script_key = "wkqPSFMjYsXGujoWZomrxaDlxZGYliAT";
+        loadstring(game:HttpGet("https://api.luarmor.net/files/v4/loaders/66567bfd337b57eb059b58dbe1badb89.lua"))()
+        print("Zenith Executive Loader Context Dispatched Safely.")
+    end)
+end)
+
+-- ==================== TAB 5: 🪶 SUB-TAB PET PEN MGR ====================
+CreateLabel("🏡 Pet Pen Settings", PetPenContentContainer)
+CreateConfigToggle("Enable Auto Pet Pen", "PetPenActive", PetPenContentContainer)
+CreateConfigToggle("Prioritize Specific Pets", "PetPenFocusPriority", PetPenContentContainer)
+CreateConfigInput("Pet Names to Prioritize (Comma separated)", "PetPenFocusPetOrder", PetPenContentContainer, true)
+
+CreateLabel("🎖️ Rarity Priority", PetPenContentContainer)
+CreateConfigToggle("Prioritize by Rarity", "PetPenFocusPetRarity", PetPenContentContainer)
+CreateConfigInput("Rarity Order (e.g. legendary, rare)", "PetPenFocusPetRarityOrder", PetPenContentContainer, true)
+
+CreateLabel("🧬 Auto Fuse in Pen", PetPenContentContainer)
+CreateConfigToggle("Auto Make Neon in Pen", "PetPenAutoNeon", PetPenContentContainer)
+CreateConfigToggle("Auto Make Mega in Pen", "PetPenAutoMega", PetPenContentContainer)
+
+-- ==================== NEW TAB: 🌭 HOTDOG PAY ====================
+CreateLabel("🌭 Hotdog Stand Pay Transfer", HotdogContentContainer)
+CreateConfigToggle("Enable Hotdog Pay Transfer", "HodDogStandTransfer", HotdogContentContainer)
+CreateConfigInput("Username to Receive Money", "HodDogStandHOLDER", HotdogContentContainer, false)
+CreateConfigInput("Hotdog Price (1-50)", "HodDogStandHOLDERPrice", HotdogContentContainer, false)
+
+local HotdogNote = CreateLabel("(Must be within 1-50 range)", HotdogContentContainer)
+HotdogNote.TextColor3 = Color3.fromRGB(150, 155, 170)
+HotdogNote.TextSize = 11
+
+-- ==================== TAB 6: ♻️ SUB-TAB RELEASE & UTILS ====================
+CreateLabel("🏪 Auto Recycle Points Shop", ReleaseContentContainer)
+CreateConfigToggle("Auto Buy Items with Recycle Points", "AutoBuyStuffRecyclePoint", ReleaseContentContainer)
+CreateConfigInput("Item Name to Buy", "ItemToBuyInRecyclePoint", ReleaseContentContainer, false)
+
+CreateLabel("🗑️ Auto Release Pets Settings", ReleaseContentContainer)
+CreateConfigToggle("Enable Auto Release Pets", "AutoReleasePet", ReleaseContentContainer)
+CreateConfigInput("ONLY Release These Pets", "OnlyReleasePetList", ReleaseContentContainer, true)
+CreateConfigInput("NEVER Release These Pets", "GlobalBlacklist", ReleaseContentContainer, true)
+CreateConfigInput("Legendaries Allowed to Release", "LegendaryAllowedToRecycle", ReleaseContentContainer, true)
+CreateConfigInput("Only Release Pets with this Age", "RecycleOnlyPetWithAge", ReleaseContentContainer, false)
+
+CreateLabel("⚠️ Select Rarities to Auto-Release:", ReleaseContentContainer)
+CreateConfigToggle("Common Pets", "common", ReleaseContentContainer)
+CreateConfigToggle("Uncommon Pets", "uncommon", ReleaseContentContainer)
+CreateConfigToggle("Rare Pets", "rare", ReleaseContentContainer)
+CreateConfigToggle("Ultra Rare Pets", "ultra_rare", ReleaseContentContainer)
+CreateConfigToggle("Legendary Pets (Be Careful!)", "legendary", ReleaseContentContainer)
+
+-- ==================== SIDEBAR NOTIFICATION CLASSIFIER SYSTEMS ====================
+local PopUpFrame = Instance.new("Frame", ScreenGui)
+PopUpFrame.BackgroundColor3 = Color3.fromRGB(40, 42, 50) 
+PopUpFrame.Size = UDim2.new(0, 260, 0, 45) 
+PopUpFrame.Position = UDim2.new(0.5, -130, 0, -60)
+PopUpFrame.Visible = false
+Instance.new("UICorner", PopUpFrame).CornerRadius = UDim.new(0, 8)
+local PopUpStroke = Instance.new("UIStroke", PopUpFrame)
+PopUpStroke.Color = Color3.fromRGB(110, 125, 255) 
+PopUpStroke.Thickness = 1.5
+
+local PopUpText = Instance.new("TextLabel", PopUpFrame)
+PopUpText.Size = UDim2.new(1, 0, 1, 0)
+PopUpText.BackgroundTransparency = 1
+PopUpText.Font = Enum.Font.GothamBold
+PopUpText.Text = "📋 Invitation link copied to clipboard!"
+PopUpText.TextColor3 = Color3.fromRGB(100, 240, 100)
+PopUpText.TextSize = 13 
+
+-- Global Sticky Footer Area
+local DiscordFooter = Instance.new("TextButton", MainFrame)
+DiscordFooter.BackgroundColor3 = Color3.fromRGB(88, 101, 242) 
+DiscordFooter.BackgroundTransparency = 0.1 
+DiscordFooter.Position = UDim2.new(0, 155, 1, -55)
+DiscordFooter.Size = UDim2.new(1, -170, 0, 44)
+DiscordFooter.Font = Enum.Font.GothamBold 
+DiscordFooter.Text = "🛒 Buy More Age-Up Potions: discord.gg/yVsXdGxTm"
+DiscordFooter.TextColor3 = Color3.fromRGB(255, 255, 255) 
+DiscordFooter.TextSize = 12
+Instance.new("UICorner", DiscordFooter).CornerRadius = UDim.new(0, 8) 
+
+local isShowingNotification = false
+DiscordFooter.MouseButton1Click:Connect(function()
+    if setclipboard then setclipboard("https://discord.gg/yVsXdGxTm") elseif toclipboard then toclipboard("https://discord.gg/yVsXdGxTm") end
+    if not isShowingNotification then
+        isShowingNotification = true
+        PopUpFrame.Visible = true
+        PopUpFrame.Position = UDim2.new(0.5, -130, 0, -60)
+        PopUpFrame:TweenPosition(UDim2.new(0.5, -130, 0, 20), Enum.EasingDirection.Out, Enum.EasingStyle.Back, 0.4, true)
+        task.wait(1.8)
+        PopUpFrame:TweenPosition(UDim2.new(0.5, -130, 0, -60), Enum.EasingDirection.In, Enum.EasingStyle.Quad, 0.3, true)
+        task.wait(0.3)
+        PopUpFrame.Visible = false
+        isShowingNotification = false
     end
 end)
