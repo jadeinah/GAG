@@ -877,13 +877,49 @@ CreateConfigToggle("Auto Make Mega in Pen", "PetPenAutoMega", PetPenContentConta
 
 -- ==================== NEW TAB: 🌭 HOTDOG PAY ====================
 CreateLabel("🌭 Hotdog Stand Pay Transfer", HotdogContentContainer)
-CreateConfigToggle("Enable Hotdog Pay Transfer", "HodDogStandTransfer", HotdogContentContainer)
+
+-- Inalis ang ConfigToggle at inilagay lang ang mga Inputs
 CreateConfigInput("Username to Receive Money", "HodDogStandHOLDER", HotdogContentContainer, false)
 CreateConfigInput("Hotdog Price (1-50)", "HodDogStandHOLDERPrice", HotdogContentContainer, false)
 
 local HotdogNote = CreateLabel("(Must be within 1-50 range)", HotdogContentContainer)
 HotdogNote.TextColor3 = Color3.fromRGB(150, 155, 170)
 HotdogNote.TextSize = 11
+
+-- Bagong Start/Stop Logic (Hiwalay sa Auto Farm)
+local hotdog_isRunning = false
+local StartHotdogBtn
+StartHotdogBtn = CreateButton("▶ START HOTDOG PAY", Color3.fromRGB(30, 130, 30), HotdogContentContainer, function()
+    hotdog_isRunning = not hotdog_isRunning
+    
+    if hotdog_isRunning then
+        StartHotdogBtn.Text = "⏹ STOP HOTDOG PAY"
+        StartHotdogBtn.BackgroundColor3 = Color3.fromRGB(160, 30, 30)
+        
+        -- Sariling loop execution na nag-rarun agad
+        task.spawn(function()
+            while hotdog_isRunning do
+                local targetUser = getgenv().Config["HodDogStandHOLDER"]
+                local targetPrice = tonumber(getgenv().Config["HodDogStandHOLDERPrice"]) or 50
+                
+                if targetUser and targetUser ~= "" then
+                    pcall(function()
+                        -- [!] ILAGAY DITO ANG HOTDOG API REMOTE MO [!]
+                        -- Dahil hiwalay na ito sa loader, kailangan nandito ang execution code.
+                        -- Example (depende sa API ng game):
+                        -- API:FindFirstChild("RefreshmentStandAPI/BuyItem"):InvokeServer("hotdog_stand", targetUser, targetPrice)
+                        
+                    end)
+                end
+                
+                task.wait(1) -- Delay para iwas crash or spam
+            end
+        end)
+    else
+        StartHotdogBtn.Text = "▶ START HOTDOG PAY"
+        StartHotdogBtn.BackgroundColor3 = Color3.fromRGB(30, 130, 30)
+    end
+end)
 
 -- ==================== TAB 6: ♻️ SUB-TAB RELEASE & UTILS ====================
 CreateLabel("🏪 Auto Recycle Points Shop", ReleaseContentContainer)
