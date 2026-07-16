@@ -609,7 +609,7 @@ end
 
 -- ==================== STRICT KEY SYSTEM (MANUAL CONFIGURATION) ====================
 -- Palitan mo lang ang string na ito para mag-update ang manual key ng script mo.
-local REQUIRED_TRADE_KEY = "Jadey" 
+local REQUIRED_TRADE_KEY = "FARM999" 
 local key_loaded = true -- Skip fetching, manual and instant.
 
 CreateLabel("🔒 Hub Access Key Needed:", MainLockContainer)
