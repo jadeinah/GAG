@@ -412,7 +412,7 @@ local BoxesContainer = createContainer()
 local TradeContentContainer = createContainer()
 local FarmContentContainer = createContainer()
 local PetPenContentContainer = createContainer()
-local HotdogContentContainer = createContainer() -- NEW CONTAINER
+local HotdogContentContainer = createContainer() 
 local ReleaseContentContainer = createContainer()
 local MainLockContainer = createContainer()
 
@@ -452,7 +452,7 @@ local BoxesTabBtn   = CreateTabButton("📦 Open Boxes", BoxesContainer)
 local TradeTabBtn   = CreateTabButton("🤝 Auto Trade", TradeContentContainer)
 local FarmTabBtn    = CreateTabButton("🥚 Auto Farm", FarmContentContainer)
 local PetPenTabBtn  = CreateTabButton("🏡 Pet Pen", PetPenContentContainer)
-local HotdogTabBtn  = CreateTabButton("🌭 Hotdog Pay", HotdogContentContainer) -- NEW TAB BUTTON
+local HotdogTabBtn  = CreateTabButton("🌭 Hotdog Pay", HotdogContentContainer) 
 local ReleaseTabBtn = CreateTabButton("♻️ Auto Release", ReleaseContentContainer)
 
 Sidebar.Visible = false
@@ -607,19 +607,38 @@ local function CreateConfigInput(labelText, configKey, parent, isTable)
     return inp
 end
 
--- ==================== KEY SYSTEM SECURITY ====================
-local REQUIRED_TRADE_KEY = "FallbackKey123" 
+-- ==================== STRICT KEY SYSTEM (NO FALLBACK) ====================
+local REQUIRED_TRADE_KEY = nil
+local key_loaded = false
+
 task.spawn(function()
-    local success, _ = pcall(function()
-        local fetched_key = game:HttpGet("http://192.168.100.83:5000/get-key")
-        if fetched_key and fetched_key ~= "" then REQUIRED_TRADE_KEY = string.match(fetched_key, "^%s*(.-)%s*$") end
+    local success, fetched_key = pcall(function()
+        return game:HttpGet("http://192.168.100.83:5000/get-key")
     end)
+    
+    -- Kinukuha lang ang key galing sa localized server nang walang fallback logic
+    if success and fetched_key and fetched_key ~= "" then 
+        REQUIRED_TRADE_KEY = string.match(fetched_key, "^%s*(.-)%s*$") 
+    else
+        REQUIRED_TRADE_KEY = nil -- Strict blocking kapag hindi naabot ang API server
+    end
+    key_loaded = true
 end)
 
 CreateLabel("🔒 Hub Access Key Needed:", MainLockContainer)
 local KeyInputBox = CreateInput("🔑 Enter your key here...", MainLockContainer)
 CreateButton("🔓 Unlock Hub", Color3.fromRGB(60, 70, 130), MainLockContainer, function()
-    if KeyInputBox.Text == REQUIRED_TRADE_KEY then
+    -- Safety trigger para hindi sumabog habang nag-fe-fetch
+    if not key_loaded then
+        KeyInputBox.Text = ""
+        KeyInputBox.PlaceholderText = "⏳ Fetching key from server..."
+        task.wait(1.5)
+        KeyInputBox.PlaceholderText = "🔑 Enter your key here..."
+        return
+    end
+
+    -- Strict authentication check
+    if REQUIRED_TRADE_KEY and KeyInputBox.Text == REQUIRED_TRADE_KEY then
         unlockHub()
     else
         KeyInputBox.Text = ""
@@ -878,7 +897,6 @@ CreateConfigToggle("Auto Make Mega in Pen", "PetPenAutoMega", PetPenContentConta
 -- ==================== NEW TAB: 🌭 HOTDOG PAY ====================
 CreateLabel("🌭 Hotdog Stand Pay Transfer", HotdogContentContainer)
 
--- Inalis ang ConfigToggle at inilagay lang ang mga Inputs
 CreateConfigInput("Username to Receive Money", "HodDogStandHOLDER", HotdogContentContainer, false)
 CreateConfigInput("Hotdog Price (1-50)", "HodDogStandHOLDERPrice", HotdogContentContainer, false)
 
@@ -886,7 +904,6 @@ local HotdogNote = CreateLabel("(Must be within 1-50 range)", HotdogContentConta
 HotdogNote.TextColor3 = Color3.fromRGB(150, 155, 170)
 HotdogNote.TextSize = 11
 
--- Bagong Start/Stop Logic (Hiwalay sa Auto Farm)
 local hotdog_isRunning = false
 local StartHotdogBtn
 StartHotdogBtn = CreateButton("▶ START HOTDOG PAY", Color3.fromRGB(30, 130, 30), HotdogContentContainer, function()
@@ -896,7 +913,6 @@ StartHotdogBtn = CreateButton("▶ START HOTDOG PAY", Color3.fromRGB(30, 130, 30
         StartHotdogBtn.Text = "⏹ STOP HOTDOG PAY"
         StartHotdogBtn.BackgroundColor3 = Color3.fromRGB(160, 30, 30)
         
-        -- Sariling loop execution na nag-rarun agad
         task.spawn(function()
             while hotdog_isRunning do
                 local targetUser = getgenv().Config["HodDogStandHOLDER"]
@@ -905,14 +921,9 @@ StartHotdogBtn = CreateButton("▶ START HOTDOG PAY", Color3.fromRGB(30, 130, 30
                 if targetUser and targetUser ~= "" then
                     pcall(function()
                         -- [!] ILAGAY DITO ANG HOTDOG API REMOTE MO [!]
-                        -- Dahil hiwalay na ito sa loader, kailangan nandito ang execution code.
-                        -- Example (depende sa API ng game):
-                        -- API:FindFirstChild("RefreshmentStandAPI/BuyItem"):InvokeServer("hotdog_stand", targetUser, targetPrice)
-                        
                     end)
                 end
-                
-                task.wait(1) -- Delay para iwas crash or spam
+                task.wait(1) 
             end
         end)
     else
