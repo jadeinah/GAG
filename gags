@@ -607,28 +607,15 @@ local function CreateConfigInput(labelText, configKey, parent, isTable)
     return inp
 end
 
--- ==================== STRICT KEY SYSTEM (NO FALLBACK) ====================
-local REQUIRED_TRADE_KEY = nil
-local key_loaded = false
-
-task.spawn(function()
-    local success, fetched_key = pcall(function()
-        return game:HttpGet("http://192.168.100.83:5000/get-key")
-    end)
-    
-    -- Kinukuha lang ang key galing sa localized server nang walang fallback logic
-    if success and fetched_key and fetched_key ~= "" then 
-        REQUIRED_TRADE_KEY = string.match(fetched_key, "^%s*(.-)%s*$") 
-    else
-        REQUIRED_TRADE_KEY = nil -- Strict blocking kapag hindi naabot ang API server
-    end
-    key_loaded = true
-end)
+-- ==================== STRICT KEY SYSTEM (MANUAL CONFIGURATION) ====================
+-- Palitan mo lang ang string na ito para mag-update ang manual key ng script mo.
+local REQUIRED_TRADE_KEY = "Jadey" 
+local key_loaded = true -- Skip fetching, manual and instant.
 
 CreateLabel("🔒 Hub Access Key Needed:", MainLockContainer)
 local KeyInputBox = CreateInput("🔑 Enter your key here...", MainLockContainer)
 CreateButton("🔓 Unlock Hub", Color3.fromRGB(60, 70, 130), MainLockContainer, function()
-    -- Safety trigger para hindi sumabog habang nag-fe-fetch
+    -- Safety trigger is retained but fires instantly
     if not key_loaded then
         KeyInputBox.Text = ""
         KeyInputBox.PlaceholderText = "⏳ Fetching key from server..."
@@ -637,7 +624,7 @@ CreateButton("🔓 Unlock Hub", Color3.fromRGB(60, 70, 130), MainLockContainer, 
         return
     end
 
-    -- Strict authentication check
+    -- Strict manual validation check
     if REQUIRED_TRADE_KEY and KeyInputBox.Text == REQUIRED_TRADE_KEY then
         unlockHub()
     else
